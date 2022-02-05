@@ -21,6 +21,6 @@ and a port of 1234 (the default if you use `nixfsconnect`), launch like:
 
 ## TODO
 
-[ ] Profile to find performance hotspots
-[ ] Refactor internals to track paths against an allowlist
-[ ] Implement the ability to expose only a subset of the store
+ * [ ] Profile to find performance hotspots
+ * [ ] Refactor internals to track paths against an allowlist
+ * [ ] Implement the ability to expose only a subset of the store
