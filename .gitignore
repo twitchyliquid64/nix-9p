@@ -1,1 +1,5 @@
 /target
+/perf.data
+/perf.data.old
+/flame.svg
+/flamegraph.svg
