@@ -1,17 +1,12 @@
-use {
-    rs9p::srv::srv_async_unix,
-    std::path::PathBuf,
-};
+use {rs9p::srv::srv_async_unix, std::path::PathBuf};
 
 #[macro_use]
 mod utils;
 mod fs;
 
-
 async fn unpfs_main(args: Vec<String>) -> rs9p::Result<i32> {
     if args.len() < 3 {
-        eprintln!("Usage: {} proto!address!port mountpoint", args[0]);
-        eprintln!("  where: proto = tcp | unix");
+        eprintln!("Usage: {} <socket-path> <mountpoint>", args[0]);
         return Ok(-1);
     }
 
