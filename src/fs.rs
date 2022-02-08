@@ -2,6 +2,7 @@ use {
     async_trait::async_trait,
     filetime::FileTime,
     nix::libc::{O_CREAT, O_RDONLY, O_RDWR, O_TRUNC, O_WRONLY},
+    radix_trie::Trie,
     rs9p::{
         srv::{Fid, Filesystem},
         *,
@@ -46,6 +47,30 @@ pub struct NixfsFid {
 pub struct Nixfs {
     pub realroot: PathBuf,
     pub readwrite: bool,
+    pub path_allowlist: Option<Trie<String, ()>>,
+}
+
+impl Nixfs {
+    fn path_check(&self, path: &PathBuf) -> Result<()> {
+        if !path.starts_with(&self.realroot) {
+            return Err(Error::Io(io_err!(
+                PermissionDenied,
+                "Relative paths not permitted"
+            )));
+        }
+        if path == &self.realroot {
+            return Ok(());
+        }
+
+        if let Some(t) = self.path_allowlist.as_ref() {
+            match t.get_ancestor_value(&String::from(path.clone().to_string_lossy())) {
+                Some(_) => Ok(()),
+                None => Err(Error::Io(io_err!(PermissionDenied, "path not permitted"))),
+            }
+        } else {
+            Ok(())
+        }
+    }
 }
 
 #[async_trait]
@@ -85,13 +110,7 @@ impl Filesystem for Nixfs {
 
         for (i, name) in wnames.iter().enumerate() {
             path.push(name);
-
-            if !path.starts_with(&self.realroot) {
-                return Err(Error::Io(io_err!(
-                    PermissionDenied,
-                    "Relative paths not permitted"
-                )));
-            }
+            self.path_check(&path)?;
 
             let qid = match get_qid(&path).await {
                 Ok(qid) => qid,
@@ -217,18 +236,25 @@ impl Filesystem for Nixfs {
             off - 1
         } as usize;
 
-        let mut entries = {
+        let (root, mut entries) = {
             let realpath = fid.aux.realpath.read().await;
-            ReadDirStream::new(fs::read_dir(&*realpath).await?).skip(offset)
+            (
+                *realpath == self.realroot,
+                ReadDirStream::new(fs::read_dir(&*realpath).await?).skip(offset),
+            )
         };
 
         let mut i = offset;
         while let Some(entry) = entries.next().await {
-            let dirent = get_dirent(&entry?, 2 + i as u64).await?;
+            let entry = entry?;
+            let dirent = get_dirent(&entry, 2 + i as u64).await?;
             if dirents.size() + dirent.size() > count {
                 break;
             }
-            dirents.push(dirent);
+
+            if !root || self.path_check(&entry.path()).is_ok() {
+                dirents.push(dirent);
+            }
             i += 1;
         }
 
@@ -274,12 +300,7 @@ impl Filesystem for Nixfs {
             let realpath = fid.aux.realpath.read().await;
             realpath.join(name)
         };
-        if !path.starts_with(&self.realroot) {
-            return Err(Error::Io(io_err!(
-                PermissionDenied,
-                "Addressed file out of bounds"
-            )));
-        }
+        self.path_check(&path)?;
 
         let oflags = nix::fcntl::OFlag::from_bits_truncate((flags & UNIX_FLAGS) as i32);
         let omode = nix::sys::stat::Mode::from_bits_truncate(mode);
@@ -345,12 +366,7 @@ impl Filesystem for Nixfs {
             let realpath = dfid.aux.realpath.read().await;
             realpath.join(name)
         };
-        if !path.starts_with(&self.realroot) {
-            return Err(Error::Io(io_err!(
-                PermissionDenied,
-                "Addressed path out of bounds"
-            )));
-        }
+        self.path_check(&path)?;
 
         fs::create_dir(&path).await?;
 
@@ -379,18 +395,8 @@ impl Filesystem for Nixfs {
             let realpath = newdir.aux.realpath.read().await;
             realpath.join(newname)
         };
-        if !oldpath.starts_with(&self.realroot) {
-            return Err(Error::Io(io_err!(
-                PermissionDenied,
-                "Addressed path out of bounds"
-            )));
-        }
-        if !newpath.starts_with(&self.realroot) {
-            return Err(Error::Io(io_err!(
-                PermissionDenied,
-                "Addressed path out of bounds"
-            )));
-        }
+        self.path_check(&oldpath)?;
+        self.path_check(&newpath)?;
 
         fs::rename(&oldpath, &newpath).await?;
 
@@ -406,12 +412,7 @@ impl Filesystem for Nixfs {
             let realpath = dirfid.aux.realpath.read().await;
             realpath.join(name)
         };
-        if !path.starts_with(&self.realroot) {
-            return Err(Error::Io(io_err!(
-                PermissionDenied,
-                "Addressed path out of bounds"
-            )));
-        }
+        self.path_check(&path)?;
 
         match fs::symlink_metadata(&path).await? {
             ref attr if attr.is_dir() => fs::remove_dir(&path).await?,
