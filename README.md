@@ -15,12 +15,13 @@ Assuming a firecracker vsock configuration of:
   }
 ```
 
-and a port of 1234 (the default if you use `nixfsconnect`), launch like:
+and a port of 1234 (the default if you use [`mk-init`](https://github.com/twitchyliquid64/minikernel/blob/c90ea0e9e6f0959a922433d95ec3e6478fe45323/mk-init.go#L117) ), launch like:
 
 `nix-9p /tmp/nixfs-socket_1234 /nix/store`
 
+If you run it like the above, your exposing the entire nix store to your VM. Instead, you can pass a path to a file listing path prefixes which should be visible/readable.
+
 ## TODO
 
- * [ ] Profile to find performance hotspots
- * [ ] Refactor internals to track paths against an allowlist
- * [ ] Implement the ability to expose only a subset of the store
+ * [x] Profile to find performance hotspots
+ * [x] Implement the ability to expose only a subset of the store
